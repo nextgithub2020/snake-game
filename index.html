@@ -387,48 +387,126 @@ function initMusic(){
     musicGain.gain.value=0;
     musicGain.connect(audioCtx.destination);
 }
+
+function scheduleNote(freq,start,dur,type,vol,pan){
+    const o=audioCtx.createOscillator();
+    const g=audioCtx.createGain();
+    const p=audioCtx.createStereoPanner?audioCtx.createStereoPanner():null;
+    o.type=type;o.frequency.setValueAtTime(freq,start);
+    if(p){p.pan.value=pan||0;o.connect(p);p.connect(g)}else{o.connect(g)}
+    g.gain.setValueAtTime(0,start);
+    g.gain.linearRampToValueAtTime(vol,start+Math.min(dur*0.15,0.08));
+    g.gain.setValueAtTime(vol,start+dur*0.6);
+    g.gain.exponentialRampToValueAtTime(0.001,start+dur);
+    g.connect(musicGain);
+    o.start(start);o.stop(start+dur+0.05);
+}
+
 function playMusicLoop(){
     if(!$('optMusic').checked||!musicPlaying)return;
     const now=audioCtx.currentTime;
-    // Gentle ambient chord progression
-    const chords=[
-        [261.6,329.6,392.0],  // C major
-        [293.7,370.0,440.0],  // D major
-        [246.9,311.1,370.0],  // B dim
-        [261.6,329.6,392.0],  // C major
-        [220.0,277.2,329.6],  // A minor
-        [246.9,311.1,370.0],  // B dim
-        [196.0,246.9,293.7],  // G major
-        [220.0,277.2,329.6],  // A minor
+    const bpm=110;
+    const beat=60/bpm;
+
+    // Melody notes (C major pentatonic inspired, catchy tune)
+    const melody=[
+        // Bar 1 - rising
+        [523.25,0,0.5],[659.25,0.5,0.5],[783.99,1,1],
+        // Bar 2 - falling
+        [659.25,2,0.5],[523.25,2.5,0.5],[392.00,3,1],
+        // Bar 3 - playful
+        [523.25,4,0.25],[587.33,4.25,0.25],[659.25,4.5,0.5],[783.99,5,0.5],[659.25,5.5,0.5],
+        // Bar 4 - resolve
+        [523.25,6,0.5],[392.00,6.5,0.5],[523.25,7,1],
+        // Bar 5 - variation
+        [783.99,8,0.5],[659.25,8.5,0.5],[587.33,9,0.5],[523.25,9.5,0.5],
+        // Bar 6 - descend
+        [440.00,10,0.5],[392.00,10.5,0.5],[349.23,11,1],
+        // Bar 7 - bridge
+        [392.00,12,0.5],[440.00,12.5,0.5],[523.25,13,0.5],[587.33,13.5,0.5],
+        // Bar 8 - home
+        [659.25,14,0.5],[523.25,14.5,0.5],[523.25,15,1],
     ];
-    const beatDur=0.8;
-    chords.forEach((chord,ci)=>{
-        chord.forEach(freq=>{
-            const o=audioCtx.createOscillator();
-            const g=audioCtx.createGain();
-            o.type='sine';
-            o.frequency.setValueAtTime(freq,now+ci*beatDur);
-            g.gain.setValueAtTime(0,now+ci*beatDur);
-            g.gain.linearRampToValueAtTime(0.04,now+ci*beatDur+0.15);
-            g.gain.linearRampToValueAtTime(0.025,now+ci*beatDur+beatDur*0.6);
-            g.gain.linearRampToValueAtTime(0,now+ci*beatDur+beatDur);
-            o.connect(g);g.connect(musicGain);
-            o.start(now+ci*beatDur);o.stop(now+ci*beatDur+beatDur);
-        });
-        // Add a soft bass note
-        const bass=audioCtx.createOscillator();
-        const bg=audioCtx.createGain();
-        bass.type='triangle';
-        bass.frequency.setValueAtTime(chord[0]/2,now+ci*beatDur);
-        bg.gain.setValueAtTime(0,now+ci*beatDur);
-        bg.gain.linearRampToValueAtTime(0.06,now+ci*beatDur+0.1);
-        bg.gain.linearRampToValueAtTime(0,now+ci*beatDur+beatDur);
-        bass.connect(bg);bg.connect(musicGain);
-        bass.start(now+ci*beatDur);bass.stop(now+ci*beatDur+beatDur);
+
+    // Arpeggio pattern (broken chords)
+    const arpPattern=[
+        // C major
+        [261.63,329.63,392.00,523.25],
+        // Am
+        [220.00,261.63,329.63,440.00],
+        // F major
+        [174.61,220.00,261.63,349.23],
+        // G major
+        [196.00,246.94,293.66,392.00],
+    ];
+    const arpSequence=[0,0,1,1,2,2,3,3]; // which chord for each bar
+
+    // Bass notes
+    const bassNotes=[
+        [130.81,0,2],[130.81,2,2],[110.00,4,2],[110.00,6,2],
+        [87.31,8,2],[98.00,10,2],[87.31,12,2],[130.81,14,2],
+    ];
+
+    const totalBeats=16;
+    const loopDur=totalBeats*beat;
+
+    // Schedule melody
+    melody.forEach(([freq,time,dur])=>{
+        scheduleNote(freq,now+time*beat,dur*beat,'sine',0.12,-0.1);
+        // Soft harmony a fifth above
+        if(dur>=0.5)scheduleNote(freq*1.5,now+time*beat,dur*beat*0.6,'sine',0.04,0.2);
     });
-    const loopDur=chords.length*beatDur*1000;
-    musicTimeout=setTimeout(playMusicLoop,loopDur-200);
+
+    // Schedule arpeggios
+    arpSequence.forEach((chordIdx,barIdx)=>{
+        const chord=arpPattern[chordIdx];
+        const barStart=now+barIdx*2*beat;
+        for(let step=0;step<8;step++){
+            const noteIdx=step%chord.length;
+            const t=barStart+step*beat*0.25;
+            scheduleNote(chord[noteIdx],t,beat*0.22,'triangle',0.06,(noteIdx%2===0?-0.3:0.3));
+        }
+    });
+
+    // Schedule bass
+    bassNotes.forEach(([freq,time,dur])=>{
+        scheduleNote(freq,now+time*beat,dur*beat,'triangle',0.15,0);
+    });
+
+    // Soft kick-like pulse on beats
+    for(let i=0;i<totalBeats;i+=2){
+        const t=now+i*beat;
+        const kick=audioCtx.createOscillator();
+        const kg=audioCtx.createGain();
+        kick.type='sine';
+        kick.frequency.setValueAtTime(80,t);
+        kick.frequency.exponentialRampToValueAtTime(30,t+0.15);
+        kg.gain.setValueAtTime(0.08,t);
+        kg.gain.exponentialRampToValueAtTime(0.001,t+0.2);
+        kick.connect(kg);kg.connect(musicGain);
+        kick.start(t);kick.stop(t+0.25);
+    }
+
+    // Hi-hat on off-beats
+    for(let i=1;i<totalBeats;i+=2){
+        const t=now+i*beat;
+        const bufSize=audioCtx.sampleRate*0.05;
+        const buf=audioCtx.createBuffer(1,bufSize,audioCtx.sampleRate);
+        const data=buf.getChannelData(0);
+        for(let j=0;j<bufSize;j++)data[j]=(Math.random()*2-1);
+        const src=audioCtx.createBufferSource();
+        const hg=audioCtx.createGain();
+        const hf=audioCtx.createBiquadFilter();
+        src.buffer=buf;hf.type='highpass';hf.frequency.value=8000;
+        hg.gain.setValueAtTime(0.03,t);
+        hg.gain.exponentialRampToValueAtTime(0.001,t+0.05);
+        src.connect(hf);hf.connect(hg);hg.connect(musicGain);
+        src.start(t);src.stop(t+0.06);
+    }
+
+    musicTimeout=setTimeout(playMusicLoop,loopDur*1000-100);
 }
+
 function startMusic(){
     initMusic();
     if(musicPlaying)return;
