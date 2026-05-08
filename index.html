@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>贪吃蛇游戏</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #1a1a2e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            font-family: 'Segoe UI', sans-serif;
+            color: #eee;
+        }
+        .container {
+            text-align: center;
+        }
+        h1 {
+            font-size: 2rem;
+            margin-bottom: 10px;
+            color: #e94560;
+        }
+        #score {
+            font-size: 1.2rem;
+            margin-bottom: 10px;
+            color: #0f3460;
+            background: #e94560;
+            display: inline-block;
+            padding: 4px 16px;
+            border-radius: 20px;
+        }
+        canvas {
+            border: 2px solid #e94560;
+            border-radius: 4px;
+            display: block;
+            margin: 0 auto;
+            background: #16213e;
+        }
+        #message {
+            margin-top: 16px;
+            font-size: 1.1rem;
+            height: 30px;
+            color: #53d8fb;
+        }
+        #message a {
+            color: #e94560;
+            cursor: pointer;
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>贪吃蛇</h1>
+        <div id="score">分数: 0</div>
+        <canvas id="gameCanvas" width="400" height="400"></canvas>
+        <div id="message">按方向键或 WASD 开始游戏</div>
+    </div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const messageEl = document.getElementById('message');
+
+        const gridSize = 20;
+        const tileCount = canvas.width / gridSize;
+
+        let snake, food, dx, dy, score, gameLoop, gameRunning;
+
+        function init() {
+            snake = [{ x: 10, y: 10 }];
+            dx = 0; dy = 0;
+            score = 0;
+            gameRunning = false;
+            scoreEl.textContent = '分数: 0';
+            messageEl.innerHTML = '按方向键或 WASD 开始游戏';
+            placeFood();
+            draw();
+        }
+
+        function placeFood() {
+            food = {
+                x: Math.floor(Math.random() * tileCount),
+                y: Math.floor(Math.random() * tileCount)
+            };
+            for (const seg of snake) {
+                if (seg.x === food.x && seg.y === food.y) {
+                    return placeFood();
+                }
+            }
+        }
+
+        function draw() {
+            ctx.fillStyle = '#16213e';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = '#e94560';
+            ctx.beginPath();
+            ctx.arc(food.x * gridSize + gridSize / 2, food.y * gridSize + gridSize / 2, gridSize / 2 - 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            for (let i = 0; i < snake.length; i++) {
+                const seg = snake[i];
+                ctx.fillStyle = i === 0 ? '#53d8fb' : '#0f3460';
+                ctx.fillRect(seg.x * gridSize + 1, seg.y * gridSize + 1, gridSize - 2, gridSize - 2);
+                if (i === 0) {
+                    ctx.fillStyle = '#1a1a2e';
+                    const eyeOffsetX = dx === 1 ? 6 : dx === -1 ? -6 : 0;
+                    const eyeOffsetY = dy === 1 ? 6 : dy === -1 ? -6 : 0;
+                    const cx = seg.x * gridSize + gridSize / 2;
+                    const cy = seg.y * gridSize + gridSize / 2;
+                    ctx.beginPath();
+                    ctx.arc(cx + eyeOffsetX - 3, cy + eyeOffsetY - 3, 2, 0, Math.PI * 2);
+                    ctx.arc(cx + eyeOffsetX + 3, cy + eyeOffsetY - 3, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function update() {
+            const head = { x: snake[0].x + dx, y: snake[0].y + dy };
+
+            if (head.x < 0 || head.x >= tileCount || head.y < 0 || head.y >= tileCount) {
+                return gameOver();
+            }
+            for (const seg of snake) {
+                if (seg.x === head.x && seg.y === head.y) return gameOver();
+            }
+
+            snake.unshift(head);
+
+            if (head.x === food.x && head.y === food.y) {
+                score++;
+                scoreEl.textContent = '分数: ' + score;
+                placeFood();
+            } else {
+                snake.pop();
+            }
+            draw();
+        }
+
+        function gameOver() {
+            gameRunning = false;
+            clearInterval(gameLoop);
+            messageEl.innerHTML = '游戏结束! 最终分数: ' + score + ' | <a onclick="init()">重新开始</a>';
+        }
+
+        function startGame(dirX, dirY) {
+            if (gameRunning) return;
+            if (dx === -dirX && dy === -dirY) return;
+            dx = dirX; dy = dirY;
+            gameRunning = true;
+            messageEl.textContent = '';
+            gameLoop = setInterval(update, 120);
+        }
+
+        document.addEventListener('keydown', e => {
+            switch (e.key) {
+                case 'ArrowUp':    case 'w': case 'W': e.preventDefault(); startGame(0, -1); break;
+                case 'ArrowDown':  case 's': case 'S': e.preventDefault(); startGame(0, 1);  break;
+                case 'ArrowLeft':  case 'a': case 'A': e.preventDefault(); startGame(-1, 0); break;
+                case 'ArrowRight': case 'd': case 'D': e.preventDefault(); startGame(1, 0);  break;
+            }
+        });
+
+        init();
+    </script>
+</body>
+</html>
