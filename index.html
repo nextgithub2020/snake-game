@@ -204,6 +204,8 @@ const LEVELS=[
 
 let snake,food,bonus,dx,dy,ndx,ndy,score,best,level,levelScore,running;
 let lastTime=0,accum=0;
+// Interpolation: previous positions for smooth movement
+let prevSnake=[];
 let shieldActive=false,slowActive=false,doubleActive=false,magnetActive=false,ghostActive=false;
 let shieldTimer,slowTimer,doubleTimer,magnetTimer;
 let rewards=[];
@@ -214,7 +216,7 @@ let rewards=[];
 function getLevel(){return LEVELS[Math.min(level,LEVELS.length-1)]}
 
 function init(){
-    snake=[{x:12,y:12}];dx=dy=ndx=ndy=0;score=0;level=0;levelScore=0;
+    snake=[{x:12,y:12}];prevSnake=[{x:12,y:12}];dx=dy=ndx=ndy=0;score=0;level=0;levelScore=0;
     running=false;
     shieldActive=slowActive=doubleActive=magnetActive=ghostActive=false;
     clearTimeout(shieldTimer);clearTimeout(slowTimer);clearTimeout(doubleTimer);clearTimeout(magnetTimer);
@@ -367,9 +369,13 @@ function drawBonus3D(){
     ctx.globalAlpha=1;
 }
 
-function drawSnake3D(){
+function drawSnake3D(t){
+    // t = interpolation ratio (0 = at prev position, 1 = at current position)
     for(let i=snake.length-1;i>=0;i--){
-        const s=snake[i];const x=s.x*G,y=s.y*G;
+        const s=snake[i];
+        const p=prevSnake[i]||s;
+        const ix=p.x+(s.x-p.x)*t, iy=p.y+(s.y-p.y)*t;
+        const x=ix*G,y=iy*G;
         if(i===0){
             // Head shadow
             ctx.fillStyle='rgba(0,0,0,0.3)';roundRect(ctx,x+3,y+3,G-2,G-2,6);ctx.fill();
@@ -416,9 +422,11 @@ function drawSnake3D(){
     }
 }
 
-function draw(){drawFloor();drawFood3D();drawBonus3D();drawSnake3D()}
+function draw(t){drawFloor();drawFood3D();drawBonus3D();drawSnake3D(t||1)}
 
 function update(){
+    // Save previous positions for interpolation
+    prevSnake=snake.map(s=>({x:s.x,y:s.y}));
     dx=ndx;dy=ndy;
 
     // Magnet: pull food closer
@@ -488,6 +496,7 @@ function levelUp(){
 function nextLevel(){
     level++;levelScore=0;$('ovLevel').classList.add('hidden');
     updateLevelUI();running=true;accum=0;lastTime=0;
+    prevSnake=snake.map(s=>({x:s.x,y:s.y}));
 }
 
 function endGame(){
@@ -503,6 +512,7 @@ function setDir(x,y){
 function startGame(x,y){
     if(running){setDir(x,y);return}
     ndx=x;ndy=y;dx=x;dy=y;running=true;accum=0;lastTime=0;
+    prevSnake=snake.map(s=>({x:s.x,y:s.y}));
     $('ovStart').classList.add('hidden');$('ovOver').classList.add('hidden');$('ovLevel').classList.add('hidden');
 }
 
@@ -552,18 +562,21 @@ function gameLoop(now){
     lastTime=now;
 
     // Game logic with time accumulator
+    let ratio=1;
     if(running){
         accum+=delta;
         const spd=getSpeed();
         while(accum>=spd){
             accum-=spd;
             update();
-            if(!running)break; // game ended mid-step
+            if(!running)break;
         }
+        // Interpolation ratio: how far between previous and current position
+        ratio=Math.min(accum/spd,1);
     }
 
-    // Render every frame for smooth animations
-    draw();
+    // Render every frame with interpolation for smooth 120fps movement
+    draw(ratio);
     updateRewards(now);
 }
 
