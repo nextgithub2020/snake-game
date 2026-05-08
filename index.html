@@ -225,6 +225,7 @@
     <div class="canvas-box" id="canvasBox">
         <button class="fs-btn" id="fsBtn" title="全屏">⛶</button>
         <button class="back-btn hidden" id="backBtn">← 菜单</button>
+        <button class="back-btn hidden" id="pauseBtn" style="left:auto;right:52px">⏸</button>
         <canvas id="cv"></canvas>
         <canvas id="rewardCanvas"></canvas>
 
@@ -299,6 +300,12 @@
             <div class="ov-sub" id="ovLvBonus">速度提升!</div>
             <button class="btn gold" id="btnNext">继续挑战</button>
         </div>
+        <div class="overlay hidden" id="ovPause">
+            <div class="ov-title" style="color:#f5c542">⏸ 已暂停</div>
+            <div class="ov-sub">按 空格键 / P 继续</div>
+            <button class="btn gold" id="btnResume">继续游戏</button>
+            <button class="btn ghost" id="btnPauseMenu">返回菜单</button>
+        </div>
     </div>
 
     <div class="powerups">
@@ -329,18 +336,44 @@ const $=id=>document.getElementById(id);
 
 // === Audio (Web Audio API) ===
 const audioCtx=new(window.AudioContext||window.webkitAudioContext)();
-function playTone(freq,dur,vol=0.15,type='sine'){
+function resumeAudio(){if(audioCtx.state==='suspended')audioCtx.resume()}
+function playTone(freq,dur,vol=0.15,type='sine',delay=0){
     if(!$('optSound').checked)return;
+    const t=audioCtx.currentTime+delay;
     const o=audioCtx.createOscillator(),g=audioCtx.createGain();
-    o.type=type;o.frequency.setValueAtTime(freq,audioCtx.currentTime);
+    o.type=type;o.frequency.setValueAtTime(freq,t);
+    g.gain.setValueAtTime(vol,t);
+    g.gain.exponentialRampToValueAtTime(0.001,t+dur);
+    o.connect(g);g.connect(audioCtx.destination);o.start(t);o.stop(t+dur);
+}
+function playNoise(dur,vol=0.1){
+    if(!$('optSound').checked)return;
+    const bufSize=audioCtx.sampleRate*dur;
+    const buf=audioCtx.createBuffer(1,bufSize,audioCtx.sampleRate);
+    const data=buf.getChannelData(0);
+    for(let i=0;i<bufSize;i++)data[i]=(Math.random()*2-1)*0.5;
+    const src=audioCtx.createBufferSource(),g=audioCtx.createGain(),f=audioCtx.createBiquadFilter();
+    src.buffer=buf;f.type='lowpass';f.frequency.value=2000;
     g.gain.setValueAtTime(vol,audioCtx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
-    o.connect(g);g.connect(audioCtx.destination);o.start();o.stop(audioCtx.currentTime+dur);
+    src.connect(f);f.connect(g);g.connect(audioCtx.destination);src.start();src.stop(audioCtx.currentTime+dur);
 }
-function sfxEat(){playTone(600,0.1);setTimeout(()=>playTone(900,0.1),60)}
-function sfxBonus(){playTone(500,0.1);setTimeout(()=>playTone(700,0.1),50);setTimeout(()=>playTone(1000,0.15),100)}
-function sfxDie(){playTone(200,0.3,0.2,'sawtooth')}
-function sfxLevelUp(){playTone(400,0.15);setTimeout(()=>playTone(600,0.15),100);setTimeout(()=>playTone(800,0.2),200)}
+// Eat food: cheerful ascending arpeggio
+function sfxEat(){playTone(523,0.08,0.12);playTone(659,0.08,0.12,0.06);playTone(784,0.12,0.15,'sine',0.1)}
+// Eat bonus: sparkle chime
+function sfxBonus(){playTone(800,0.08,0.1);playTone(1000,0.08,0.1,'sine',0.05);playTone(1200,0.08,0.12,'sine',0.1);playTone(1500,0.15,0.12,'sine',0.15)}
+// Die: descending sad tone + noise
+function sfxDie(){playTone(400,0.15,0.18,'sawtooth');playTone(300,0.15,0.15,'sawtooth',0.1);playTone(200,0.25,0.15,'sawtooth',0.2);playNoise(0.3,0.08)}
+// Level up: fanfare
+function sfxLevelUp(){playTone(523,0.12,0.12);playTone(659,0.12,0.12,'sine',0.1);playTone(784,0.12,0.12,'sine',0.2);playTone(1047,0.25,0.18,'sine',0.3)}
+// Pause
+function sfxPause(){playTone(600,0.08,0.08,'triangle');playTone(400,0.1,0.08,'triangle',0.06)}
+// Resume
+function sfxResume(){playTone(400,0.08,0.08,'triangle');playTone(600,0.1,0.1,'triangle',0.06)}
+// Menu click
+function sfxClick(){playTone(800,0.05,0.06,'square')}
+// Powerup activate: quick whoosh
+function sfxPowerup(){playTone(300,0.06,0.08);playTone(600,0.06,0.1,'sine',0.03);playTone(900,0.1,0.08,'sine',0.06)}
 
 // === High-DPI canvas ===
 const cv=$('cv'),rCv=$('rewardCanvas');
@@ -363,7 +396,7 @@ const LEVELS=[
     {goal:60,speed:92,label:'神话'},{goal:99,speed:85,label:'无极'},
 ];
 
-let snake,food,bonus,dx,dy,ndx,ndy,score,best,level,levelScore,running;
+let snake,food,bonus,dx,dy,ndx,ndy,score,best,level,levelScore,running,paused=false;
 let lastTime=0,accum=0,prevSnake=[];
 let shieldActive=false,slowActive=false,doubleActive=false,magnetActive=false,ghostActive=false;
 let shieldTimer,slowTimer,doubleTimer,magnetTimer;
@@ -402,12 +435,13 @@ function getSpeedMul(){return parseInt($('optSpeed').value)/100}
 
 // === Menu System ===
 function showScreen(name){
-    ['menuMain','menuLevels','menuSettings','ovStart','ovOver','ovLevel'].forEach(id=>{
+    ['menuMain','menuLevels','menuSettings','ovStart','ovOver','ovLevel','ovPause'].forEach(id=>{
         $(id).classList.toggle('hidden',id!==name);
     });
-    $('backBtn').classList.toggle('hidden',name==='menuMain');
-    // Show/hide game UI
-    const inGame=['ovStart','ovOver','ovLevel'].includes(name);
+    const inMenu=['menuMain','menuLevels','menuSettings'].includes(name);
+    $('backBtn').classList.toggle('hidden',inMenu||name==='ovPause');
+    $('pauseBtn').classList.toggle('hidden',!running||paused||inMenu);
+    const inGame=['ovStart','ovOver','ovLevel','ovPause'].includes(name);
     document.querySelector('.bar').style.display=inGame?'':'none';
     document.querySelector('.goal-bar').style.display=inGame?'':'none';
     document.querySelector('.powerups').style.display=inGame?'':'none';
@@ -447,13 +481,13 @@ function startFromLevel(lv){
 }
 
 // === Menu button handlers ===
-$('btnPlay').addEventListener('click',()=>startFromLevel(Math.max(0,unlockedLevel)));
-$('btnLevels').addEventListener('click',()=>{buildLevelGrid();showScreen('menuLevels')});
-$('btnSettings').addEventListener('click',()=>showScreen('menuSettings'));
-$('btnLvBack').addEventListener('click',()=>showScreen('menuMain'));
-$('btnSetBack').addEventListener('click',()=>{saveSettings();initParticles();showScreen('menuMain')});
-$('btnOverMenu').addEventListener('click',()=>{running=false;showScreen('menuMain')});
-$('backBtn').addEventListener('click',()=>{running=false;showScreen('menuMain')});
+$('btnPlay').addEventListener('click',()=>{sfxClick();startFromLevel(Math.max(0,unlockedLevel))});
+$('btnLevels').addEventListener('click',()=>{sfxClick();buildLevelGrid();showScreen('menuLevels')});
+$('btnSettings').addEventListener('click',()=>{sfxClick();showScreen('menuSettings')});
+$('btnLvBack').addEventListener('click',()=>{sfxClick();showScreen('menuMain')});
+$('btnSetBack').addEventListener('click',()=>{sfxClick();saveSettings();initParticles();showScreen('menuMain')});
+$('btnOverMenu').addEventListener('click',()=>{sfxClick();running=false;showScreen('menuMain')});
+$('backBtn').addEventListener('click',()=>{sfxClick();running=false;showScreen('menuMain')});
 
 // Settings live handlers
 $('optSpeed').addEventListener('input',()=>{
@@ -497,6 +531,7 @@ function placeBonus(){
 }
 
 function activatePowerup(type){
+    sfxPowerup();
     if(type==='slow'){
         slowActive=true;updatePU();clearTimeout(slowTimer);
         slowTimer=setTimeout(()=>{slowActive=false;updatePU()},8000);
@@ -710,24 +745,50 @@ function setDir(x,y){
 }
 
 function startGame(x,y){
+    if(paused){resumeGame();return}
     if(running){setDir(x,y);return}
-    ndx=x;ndy=y;dx=x;dy=y;running=true;accum=0;lastTime=0;
+    resumeAudio();ndx=x;ndy=y;dx=x;dy=y;running=true;accum=0;lastTime=0;
     prevSnake=snake.map(s=>({x:s.x,y:s.y}));
     $('ovStart').classList.add('hidden');$('backBtn').classList.remove('hidden');
+    $('pauseBtn').classList.remove('hidden');
+}
+
+function pauseGame(){
+    if(!running||paused)return;
+    paused=true;sfxPause();
+    showScreen('ovPause');
+}
+
+function resumeGame(){
+    if(!paused)return;
+    paused=false;lastTime=0;sfxResume();
+    $('ovPause').classList.add('hidden');
+    $('pauseBtn').classList.remove('hidden');
 }
 
 // Controls
 document.addEventListener('keydown',e=>{
     const k=e.key;
-    if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','W','a','A','s','S','d','D','Escape'].includes(k))e.preventDefault();
+    if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','w','W','a','A','s','S','d','D','Escape',' ','p','P'].includes(k))e.preventDefault();
+    // Pause/resume
+    if((k===' '||k==='p'||k==='P')&&!['menuMain','menuLevels','menuSettings'].includes(getCurrentScreen())){
+        if(paused)resumeGame();else if(running)pauseGame();
+        return;
+    }
     switch(k){
         case'ArrowUp':case'w':case'W':startGame(0,-1);break;
         case'ArrowDown':case's':case'S':startGame(0,1);break;
         case'ArrowLeft':case'a':case'A':startGame(-1,0);break;
         case'ArrowRight':case'd':case'D':startGame(1,0);break;
-        case'Escape':if(running){running=false;showScreen('menuMain')}break;
+        case'Escape':if(running){running=false;paused=false;showScreen('menuMain')}break;
     }
 });
+
+function getCurrentScreen(){
+    const ids=['menuMain','menuLevels','menuSettings','ovStart','ovOver','ovLevel','ovPause'];
+    for(const id of ids)if(!$(id).classList.contains('hidden'))return id;
+    return '';
+}
 document.querySelectorAll('[data-d]').forEach(b=>{
     b.addEventListener('touchstart',e=>{
         e.preventDefault();const d=b.dataset.d;
@@ -736,8 +797,11 @@ document.querySelectorAll('[data-d]').forEach(b=>{
     });
 });
 
-$('btnRestart').addEventListener('click',()=>startFromLevel(level));
-$('btnNext').addEventListener('click',nextLevel);
+$('btnRestart').addEventListener('click',()=>{sfxClick();startFromLevel(level)});
+$('btnNext').addEventListener('click',()=>{sfxClick();nextLevel()});
+$('pauseBtn').addEventListener('click',pauseGame);
+$('btnResume').addEventListener('click',resumeGame);
+$('btnPauseMenu').addEventListener('click',()=>{sfxClick();running=false;paused=false;showScreen('menuMain')});
 
 // Fullscreen
 $('fsBtn').addEventListener('click',()=>{
@@ -761,7 +825,7 @@ function gameLoop(now){
     if(!lastTime)lastTime=now;
     const delta=Math.min(now-lastTime,100);lastTime=now;
     let ratio=1;
-    if(running){
+    if(running&&!paused){
         accum+=delta;const spd=getSpeed();
         while(accum>=spd){accum-=spd;update();if(!running)break}
         ratio=Math.min(accum/spd,1);
