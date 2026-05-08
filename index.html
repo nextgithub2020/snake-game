@@ -49,13 +49,23 @@
 
         /* Level goal */
         .goal-bar{
-            width:400px;max-width:90vw;height:6px;background:rgba(255,255,255,0.06);
+            width:500px;max-width:90vw;height:6px;background:rgba(255,255,255,0.06);
             border-radius:3px;overflow:hidden;position:relative;
         }
         .goal-fill{
             height:100%;border-radius:3px;transition:width 0.4s ease;
             background:linear-gradient(90deg,#53d8fb,#6bffb8);
         }
+
+        /* Fullscreen button */
+        .fs-btn{
+            position:absolute;top:10px;right:10px;z-index:10;
+            background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);
+            border-radius:8px;color:#888;font-size:1.1rem;cursor:pointer;
+            width:36px;height:36px;display:flex;align-items:center;justify-content:center;
+            transition:all 0.2s;
+        }
+        .fs-btn:hover{background:rgba(255,255,255,0.15);color:#fff}
 
         /* Canvas */
         .canvas-box{
@@ -66,6 +76,20 @@
                 inset 0 0 80px rgba(0,0,0,0.3);
         }
         canvas{display:block;border-radius:14px}
+
+        /* Fullscreen mode */
+        .canvas-box:fullscreen,.canvas-box:-webkit-full-screen{
+            display:flex;align-items:center;justify-content:center;
+            background:#0a0a1a;border-radius:0;
+        }
+        .canvas-box:fullscreen canvas,.canvas-box:-webkit-full-screen canvas{
+            border-radius:0;
+            width:min(100vw,100vh)!important;
+            height:min(100vw,100vh)!important;
+        }
+        .canvas-box:fullscreen .overlay,.canvas-box:-webkit-full-screen .overlay{
+            border-radius:0;
+        }
 
         /* Overlays */
         .overlay{
@@ -122,10 +146,10 @@
         }
         .db:active{background:rgba(83,216,251,0.2);border-color:#53d8fb;color:#fff}
         .db.empty{background:none;border:none}
-        @media(max-width:500px){
-            canvas,#rewardCanvas{width:300px!important;height:300px!important}
+        @media(max-width:560px){
+            canvas,#rewardCanvas{width:90vw!important;height:90vw!important}
             .mobile{display:flex}.controls{display:none}
-            .goal-bar{width:300px}
+            .goal-bar{width:90vw}
         }
     </style>
 </head>
@@ -144,9 +168,10 @@
     </div>
     <div class="goal-bar"><div class="goal-fill" id="gf" style="width:0%"></div></div>
 
-    <div class="canvas-box">
-        <canvas id="cv" width="400" height="400"></canvas>
-        <canvas id="rewardCanvas" width="400" height="400"></canvas>
+    <div class="canvas-box" id="canvasBox">
+        <button class="fs-btn" id="fsBtn" title="全屏">⛶</button>
+        <canvas id="cv" width="500" height="500"></canvas>
+        <canvas id="rewardCanvas" width="500" height="500"></canvas>
 
         <div class="overlay" id="ovStart">
             <div class="ov-title start">贪吃蛇 3D</div>
@@ -201,16 +226,16 @@ const G=20,C=cv.width/G,R=cv.height/G;
 
 // Levels config
 const LEVELS=[
-    {goal:10,speed:120,label:'入门'},
-    {goal:15,speed:110,label:'新手'},
-    {goal:20,speed:100,label:'进阶'},
-    {goal:25,speed:92,label:'熟练'},
-    {goal:30,speed:85,label:'高手'},
-    {goal:35,speed:78,label:'大师'},
-    {goal:40,speed:72,label:'宗师'},
-    {goal:50,speed:66,label:'传说'},
-    {goal:60,speed:60,label:'神话'},
-    {goal:99,speed:55,label:'无极'},
+    {goal:10,speed:180,label:'入门'},
+    {goal:15,speed:165,label:'新手'},
+    {goal:20,speed:150,label:'进阶'},
+    {goal:25,speed:138,label:'熟练'},
+    {goal:30,speed:126,label:'高手'},
+    {goal:35,speed:116,label:'大师'},
+    {goal:40,speed:108,label:'宗师'},
+    {goal:50,speed:100,label:'传说'},
+    {goal:60,speed:92,label:'神话'},
+    {goal:99,speed:85,label:'无极'},
 ];
 
 let snake,food,bonus,dx,dy,ndy,ndx,score,best,level,levelScore,loop,running,paused;
@@ -226,7 +251,7 @@ let rewards=[];
 function getLevel(){return LEVELS[Math.min(level,LEVELS.length-1)]}
 
 function init(){
-    snake=[{x:10,y:10}];dx=dy=ndx=ndy=0;score=0;level=0;levelScore=0;
+    snake=[{x:12,y:12}];dx=dy=ndx=ndy=0;score=0;level=0;levelScore=0;
     running=false;shieldActive=slowActive=doubleActive=false;
     clearTimeout(shieldTimer);clearTimeout(slowTimer);clearTimeout(doubleTimer);
     updatePU();
@@ -581,6 +606,22 @@ document.querySelectorAll('[data-d]').forEach(b=>{
 
 $('btnRestart').addEventListener('click',init);
 $('btnNext').addEventListener('click',nextLevel);
+
+// Fullscreen
+$('fsBtn').addEventListener('click',()=>{
+    const box=$('canvasBox');
+    if(!document.fullscreenElement&&!document.webkitFullscreenElement){
+        (box.requestFullscreen||box.webkitRequestFullscreen).call(box);
+    }else{
+        (document.exitFullscreen||document.webkitExitFullscreen).call(document);
+    }
+});
+document.addEventListener('fullscreenchange',()=>{
+    $('fsBtn').textContent=document.fullscreenElement?'✕':'⛶';
+});
+document.addEventListener('webkitfullscreenchange',()=>{
+    $('fsBtn').textContent=document.webkitFullscreenElement?'✕':'⛶';
+});
 
 // Idle animation
 function anim(){if(!running)draw();updateRewards();requestAnimationFrame(anim)}
