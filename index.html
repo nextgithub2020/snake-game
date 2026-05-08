@@ -258,6 +258,10 @@
                     <label class="toggle"><input type="checkbox" id="optSound" checked><span class="slider"></span></label>
                 </div>
                 <div class="setting-row">
+                    <div><div class="setting-label">背景音乐</div><div class="setting-desc">游戏循环背景音乐</div></div>
+                    <label class="toggle"><input type="checkbox" id="optMusic" checked><span class="slider"></span></label>
+                </div>
+                <div class="setting-row">
                     <div><div class="setting-label">背景粒子</div><div class="setting-desc">界面浮动粒子效果</div></div>
                     <label class="toggle"><input type="checkbox" id="optParticles" checked><span class="slider"></span></label>
                 </div>
@@ -375,6 +379,72 @@ function sfxClick(){playTone(800,0.05,0.06,'square')}
 // Powerup activate: quick whoosh
 function sfxPowerup(){playTone(300,0.06,0.08);playTone(600,0.06,0.1,'sine',0.03);playTone(900,0.1,0.08,'sine',0.06)}
 
+// === Background Music ===
+let musicGain=null,musicPlaying=false,musicTimeout=null;
+function initMusic(){
+    if(musicGain)return;
+    musicGain=audioCtx.createGain();
+    musicGain.gain.value=0;
+    musicGain.connect(audioCtx.destination);
+}
+function playMusicLoop(){
+    if(!$('optMusic').checked||!musicPlaying)return;
+    const now=audioCtx.currentTime;
+    // Gentle ambient chord progression
+    const chords=[
+        [261.6,329.6,392.0],  // C major
+        [293.7,370.0,440.0],  // D major
+        [246.9,311.1,370.0],  // B dim
+        [261.6,329.6,392.0],  // C major
+        [220.0,277.2,329.6],  // A minor
+        [246.9,311.1,370.0],  // B dim
+        [196.0,246.9,293.7],  // G major
+        [220.0,277.2,329.6],  // A minor
+    ];
+    const beatDur=0.8;
+    chords.forEach((chord,ci)=>{
+        chord.forEach(freq=>{
+            const o=audioCtx.createOscillator();
+            const g=audioCtx.createGain();
+            o.type='sine';
+            o.frequency.setValueAtTime(freq,now+ci*beatDur);
+            g.gain.setValueAtTime(0,now+ci*beatDur);
+            g.gain.linearRampToValueAtTime(0.04,now+ci*beatDur+0.15);
+            g.gain.linearRampToValueAtTime(0.025,now+ci*beatDur+beatDur*0.6);
+            g.gain.linearRampToValueAtTime(0,now+ci*beatDur+beatDur);
+            o.connect(g);g.connect(musicGain);
+            o.start(now+ci*beatDur);o.stop(now+ci*beatDur+beatDur);
+        });
+        // Add a soft bass note
+        const bass=audioCtx.createOscillator();
+        const bg=audioCtx.createGain();
+        bass.type='triangle';
+        bass.frequency.setValueAtTime(chord[0]/2,now+ci*beatDur);
+        bg.gain.setValueAtTime(0,now+ci*beatDur);
+        bg.gain.linearRampToValueAtTime(0.06,now+ci*beatDur+0.1);
+        bg.gain.linearRampToValueAtTime(0,now+ci*beatDur+beatDur);
+        bass.connect(bg);bg.connect(musicGain);
+        bass.start(now+ci*beatDur);bass.stop(now+ci*beatDur+beatDur);
+    });
+    const loopDur=chords.length*beatDur*1000;
+    musicTimeout=setTimeout(playMusicLoop,loopDur-200);
+}
+function startMusic(){
+    initMusic();
+    if(musicPlaying)return;
+    musicPlaying=true;
+    musicGain.gain.setValueAtTime(0,audioCtx.currentTime);
+    musicGain.gain.linearRampToValueAtTime(1,audioCtx.currentTime+1);
+    playMusicLoop();
+}
+function stopMusic(){
+    musicPlaying=false;
+    if(musicTimeout){clearTimeout(musicTimeout);musicTimeout=null}
+    if(musicGain){
+        musicGain.gain.linearRampToValueAtTime(0,audioCtx.currentTime+0.5);
+    }
+}
+
 // === High-DPI canvas ===
 const cv=$('cv'),rCv=$('rewardCanvas');
 const ctx=cv.getContext('2d'),rCtx=rCv.getContext('2d');
@@ -407,6 +477,7 @@ let unlockedLevel=parseInt(localStorage.getItem('snakeUnlocked')||'0');
 function loadSettings(){
     const s=JSON.parse(localStorage.getItem('snakeSettings')||'{}');
     if(s.sound!==undefined)$('optSound').checked=s.sound;
+    if(s.music!==undefined)$('optMusic').checked=s.music;
     if(s.particles!==undefined)$('optParticles').checked=s.particles;
     if(s.grid!==undefined)$('optGrid').checked=s.grid;
     if(s.rewards!==undefined)$('optRewards').checked=s.rewards;
@@ -415,7 +486,8 @@ function loadSettings(){
 }
 function saveSettings(){
     localStorage.setItem('snakeSettings',JSON.stringify({
-        sound:$('optSound').checked,particles:$('optParticles').checked,
+        sound:$('optSound').checked,music:$('optMusic').checked,
+        particles:$('optParticles').checked,
         grid:$('optGrid').checked,rewards:$('optRewards').checked,
         speedMul:parseInt($('optSpeed').value)
     }));
@@ -466,7 +538,7 @@ function buildLevelGrid(){
 function startFromLevel(lv){
     level=lv;levelScore=0;
     snake=[{x:12,y:12}];prevSnake=[{x:12,y:12}];dx=dy=ndx=ndy=0;score=0;
-    running=false;
+    running=false;stopMusic();paused=false;
     shieldActive=slowActive=doubleActive=magnetActive=ghostActive=false;
     clearTimeout(shieldTimer);clearTimeout(slowTimer);clearTimeout(doubleTimer);clearTimeout(magnetTimer);
     updatePU();
@@ -486,17 +558,21 @@ $('btnLevels').addEventListener('click',()=>{sfxClick();buildLevelGrid();showScr
 $('btnSettings').addEventListener('click',()=>{sfxClick();showScreen('menuSettings')});
 $('btnLvBack').addEventListener('click',()=>{sfxClick();showScreen('menuMain')});
 $('btnSetBack').addEventListener('click',()=>{sfxClick();saveSettings();initParticles();showScreen('menuMain')});
-$('btnOverMenu').addEventListener('click',()=>{sfxClick();running=false;showScreen('menuMain')});
-$('backBtn').addEventListener('click',()=>{sfxClick();running=false;showScreen('menuMain')});
+$('btnOverMenu').addEventListener('click',()=>{sfxClick();running=false;stopMusic();showScreen('menuMain')});
+$('backBtn').addEventListener('click',()=>{sfxClick();running=false;stopMusic();showScreen('menuMain')});
 
 // Settings live handlers
 $('optSpeed').addEventListener('input',()=>{
     $('optSpeedVal').textContent=($('optSpeed').value/100).toFixed(1)+'x';
 });
-['optSound','optParticles','optGrid','optRewards'].forEach(id=>{
+['optSound','optMusic','optParticles','optGrid','optRewards'].forEach(id=>{
     $(id).addEventListener('change',()=>{
         saveSettings();
         if(id==='optParticles')initParticles();
+        if(id==='optMusic'){
+            if($('optMusic').checked&&running&&!paused)startMusic();
+            else stopMusic();
+        }
     });
 });
 
@@ -731,10 +807,11 @@ function nextLevel(){
     updateLevelUI();running=true;accum=0;lastTime=0;
     prevSnake=snake.map(s=>({x:s.x,y:s.y}));
     $('ovLevel').classList.add('hidden');$('backBtn').classList.remove('hidden');
+    if(musicGain&&$('optMusic').checked)musicGain.gain.linearRampToValueAtTime(1,audioCtx.currentTime+0.3);
 }
 
 function endGame(){
-    running=false;sfxDie();
+    running=false;sfxDie();stopMusic();
     $('ovSc').textContent=score;
     showScreen('ovOver');
 }
@@ -751,19 +828,32 @@ function startGame(x,y){
     prevSnake=snake.map(s=>({x:s.x,y:s.y}));
     $('ovStart').classList.add('hidden');$('backBtn').classList.remove('hidden');
     $('pauseBtn').classList.remove('hidden');
+    startMusic();
 }
 
 function pauseGame(){
     if(!running||paused)return;
     paused=true;sfxPause();
+    if(musicGain)musicGain.gain.linearRampToValueAtTime(0,audioCtx.currentTime+0.3);
     showScreen('ovPause');
+}
+
+function hideAllOverlays(){
+    ['menuMain','menuLevels','menuSettings','ovStart','ovOver','ovLevel','ovPause'].forEach(id=>{
+        $(id).classList.add('hidden');
+    });
 }
 
 function resumeGame(){
     if(!paused)return;
     paused=false;lastTime=0;sfxResume();
-    $('ovPause').classList.add('hidden');
+    hideAllOverlays();
+    $('backBtn').classList.remove('hidden');
     $('pauseBtn').classList.remove('hidden');
+    document.querySelector('.bar').style.display='';
+    document.querySelector('.goal-bar').style.display='';
+    document.querySelector('.powerups').style.display='';
+    if(musicGain&&$('optMusic').checked)musicGain.gain.linearRampToValueAtTime(1,audioCtx.currentTime+0.3);
 }
 
 // Controls
@@ -780,7 +870,7 @@ document.addEventListener('keydown',e=>{
         case'ArrowDown':case's':case'S':startGame(0,1);break;
         case'ArrowLeft':case'a':case'A':startGame(-1,0);break;
         case'ArrowRight':case'd':case'D':startGame(1,0);break;
-        case'Escape':if(running){running=false;paused=false;showScreen('menuMain')}break;
+        case'Escape':if(running){running=false;paused=false;stopMusic();showScreen('menuMain')}break;
     }
 });
 
@@ -801,7 +891,7 @@ $('btnRestart').addEventListener('click',()=>{sfxClick();startFromLevel(level)})
 $('btnNext').addEventListener('click',()=>{sfxClick();nextLevel()});
 $('pauseBtn').addEventListener('click',pauseGame);
 $('btnResume').addEventListener('click',resumeGame);
-$('btnPauseMenu').addEventListener('click',()=>{sfxClick();running=false;paused=false;showScreen('menuMain')});
+$('btnPauseMenu').addEventListener('click',()=>{sfxClick();running=false;paused=false;stopMusic();showScreen('menuMain')});
 
 // Fullscreen
 $('fsBtn').addEventListener('click',()=>{
